@@ -28,7 +28,7 @@ CREATE TABLE users (
 | id | UUID | PK, default gen_random_uuid() | Unique identifier |
 | email | VARCHAR(255) | NOT NULL, UNIQUE | Login identifier |
 | password_hash | VARCHAR(255) | NOT NULL | Bcrypt hash |
-| role | VARCHAR(20) | NOT NULL, CHECK | 'resident' or 'admin' |
+| role | VARCHAR(20) | NOT NULL, CHECK | 'resident' or 'admin' (enforced via Prisma Role enum) |
 | created_at | TIMESTAMPTZ | NOT NULL, default NOW() | Account creation timestamp |
 
 **Indexes**:
@@ -139,7 +139,7 @@ CREATE TABLE votes (
 | id | UUID | PK, default gen_random_uuid() | Unique identifier |
 | report_id | UUID | NOT NULL, FK → reports(id), CASCADE | Which report being voted on |
 | user_id | UUID | NOT NULL, FK → users(id), CASCADE | Who voted |
-| vote_type | VARCHAR(20) | NOT NULL, CHECK | 'confirm' or 'contradict' |
+| vote_type | VARCHAR(20) | NOT NULL, CHECK | 'confirm' or 'contradict' (enforced via Prisma VoteType enum) |
 | created_at | TIMESTAMPTZ | NOT NULL, default NOW() | When vote was cast |
 
 **Indexes**:
@@ -189,8 +189,8 @@ water_points (1) ─────< (N) reports ─────< (N) votes
 | FK (user_id) | reports → users | Referential integrity |
 | FK (report_id) | votes → reports | Referential integrity |
 | FK (user_id) | votes → users | Referential integrity |
-| CHECK (role IN...) | users | Valid roles only |
-| CHECK (vote_type IN...) | votes | Valid vote types only |
+| CHECK (role IN...) | users | Valid roles only (enforced via Prisma Role enum) |
+| CHECK (vote_type IN...) | votes | Valid vote types only (enforced via Prisma VoteType enum) |
 | CHECK (queue_size 0-50) | reports | Reasonable queue bounds |
 | CHECK (estimated_wait_minutes >= 0) | reports | Non-negative wait time |
 | CASCADE DELETE | All FKs | Clean orphan removal |
@@ -238,11 +238,11 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  passwordHash  String    @map("password_hash")
+  id            String    @id @default(uuid()) @db.Uuid
+  email         String    @unique @db.VarChar(255)
+  passwordHash  String    @map("password_hash") @db.VarChar(255)
   role          Role      @default(resident)
-  createdAt     DateTime  @default(now()) @map("created_at")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
   reports       Report[]
   votes         Vote[]
 
@@ -250,14 +250,14 @@ model User {
 }
 
 model WaterPoint {
-  id              String    @id @default(uuid())
-  name            String
-  address         String
+  id              String    @id @default(uuid()) @db.Uuid
+  name            String    @db.VarChar(255)
+  address         String    @db.VarChar(500)
   latitude        Decimal   @db.Decimal(10, 8)
   longitude       Decimal   @db.Decimal(11, 8)
-  operatingHours  String    @map("operating_hours")
+  operatingHours  String    @map("operating_hours") @db.VarChar(100)
   isActive        Boolean   @default(true) @map("is_active")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   reports         Report[]
 
   @@index([isActive])
@@ -265,13 +265,13 @@ model WaterPoint {
 }
 
 model Report {
-  id                   String    @id @default(uuid())
-  waterPointId         String    @map("water_point_id")
-  userId               String    @map("user_id")
+  id                   String    @id @default(uuid()) @db.Uuid
+  waterPointId         String    @map("water_point_id") @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
   waterAvailable       Boolean   @map("water_available")
   queueSize            Int       @map("queue_size")
   estimatedWaitMinutes Int?      @map("estimated_wait_minutes")
-  createdAt            DateTime  @default(now()) @map("created_at")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
   waterPoint           WaterPoint @relation(fields: [waterPointId], references: [id], onDelete: Cascade)
   user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   votes                Vote[]
@@ -282,11 +282,11 @@ model Report {
 }
 
 model Vote {
-  id        String   @id @default(uuid())
-  reportId  String   @map("report_id")
-  userId    String   @map("user_id")
+  id        String   @id @default(uuid()) @db.Uuid
+  reportId  String   @map("report_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   voteType  VoteType @map("vote_type")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -314,3 +314,18 @@ enum VoteType {
 - Initial migration creates all four tables with constraints and indexes
 - Subsequent schema changes generate new migration files
 - Never edit migration files after they are applied to production
+
+## Required Manual CHECK Constraints (Add to Initial Migration)
+
+Prisma does not natively support CHECK constraints in the schema. The following constraints must be added manually to the initial migration SQL file after running `prisma migrate dev --create-only`:
+
+```sql
+-- Add to the initial migration after table creation
+ALTER TABLE "reports" ADD CONSTRAINT "reports_queue_size_check" 
+  CHECK ("queue_size" >= 0 AND "queue_size" <= 50);
+
+ALTER TABLE "reports" ADD CONSTRAINT "reports_estimated_wait_minutes_check" 
+  CHECK ("estimated_wait_minutes" IS NULL OR "estimated_wait_minutes" >= 0);
+```
+
+The Role and VoteType enums in Prisma will automatically generate equivalent CHECK constraints in PostgreSQL (e.g., `CHECK (role IN ('resident', 'admin'))`), so no manual action is needed for those.
