@@ -1,12 +1,57 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import Fastify from 'fastify';
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from '@fastify/jwt';
+
+const { mockWaterPointFindMany, mockWaterPointFindFirst, mockWaterPointFindUnique, mockWaterPointCreate, mockWaterPointDelete, mockWaterPointDeleteMany, mockWaterPointUpsert, mockUserFindUnique, mockUserCreate, mockUserUpsert, mockUserDelete, mockUserDeleteMany, mockReportFindMany, mockReportCreate, mockReportDeleteMany, mockDisconnect } = vi.hoisted(() => ({
+  mockWaterPointFindMany: vi.fn(),
+  mockWaterPointFindFirst: vi.fn(),
+  mockWaterPointFindUnique: vi.fn(),
+  mockWaterPointCreate: vi.fn(),
+  mockWaterPointDelete: vi.fn(),
+  mockWaterPointDeleteMany: vi.fn(),
+  mockWaterPointUpsert: vi.fn(),
+  mockUserFindUnique: vi.fn(),
+  mockUserCreate: vi.fn(),
+  mockUserUpsert: vi.fn(),
+  mockUserDelete: vi.fn(),
+  mockUserDeleteMany: vi.fn(),
+  mockReportFindMany: vi.fn(),
+  mockReportCreate: vi.fn(),
+  mockReportDeleteMany: vi.fn(),
+  mockDisconnect: vi.fn(),
+}));
+
+vi.mock('../src/prisma/client.js', () => ({
+  prisma: {
+    waterPoint: {
+      findMany: mockWaterPointFindMany,
+      findFirst: mockWaterPointFindFirst,
+      findUnique: mockWaterPointFindUnique,
+      create: mockWaterPointCreate,
+      delete: mockWaterPointDelete,
+      deleteMany: mockWaterPointDeleteMany,
+      upsert: mockWaterPointUpsert,
+    },
+    user: {
+      findUnique: mockUserFindUnique,
+      create: mockUserCreate,
+      upsert: mockUserUpsert,
+      delete: mockUserDelete,
+      deleteMany: mockUserDeleteMany,
+    },
+    report: {
+      findMany: mockReportFindMany,
+      create: mockReportCreate,
+      deleteMany: mockReportDeleteMany,
+    },
+    $disconnect: mockDisconnect,
+  },
+}));
+
 import waterPointsRoutes from '../src/routes/waterPoints.js';
 import authRoutes from '../src/routes/auth.js';
-
-const prisma = new PrismaClient();
+import { prisma } from '../src/prisma/client.js';
 
 const ACTIVE_WATER_POINT_ID = 'aaaaaaaa-bbbb-cccc-dddd-000000000001';
 const INACTIVE_WATER_POINT_ID = 'bbbbbbbb-cccc-dddd-eeee-000000000006';
@@ -25,26 +70,65 @@ describe('GET /water-points', () => {
     app.register(waterPointsRoutes);
     await app.ready();
 
-    // Create an inactive water point for testing
-    await prisma.waterPoint.upsert({
-      where: { id: INACTIVE_WATER_POINT_ID },
-      update: { isActive: false },
-      create: {
-        id: INACTIVE_WATER_POINT_ID,
-        name: 'Inactive Water Point',
-        address: 'Test Address',
-        latitude: 0,
-        longitude: 0,
-        operatingHours: '09:00-17:00',
-        isActive: false,
+    // Setup mock water points
+    const mockActiveWaterPoints = [
+      {
+        id: ACTIVE_WATER_POINT_ID,
+        name: 'Bole Medhanealem Well',
+        address: 'Bole Subcity, near Medhanealem Church, Addis Ababa',
+        latitude: 8.9867,
+        longitude: 38.7993,
+        operatingHours: '06:00-22:00',
+        isActive: true,
+        createdAt: new Date('2024-01-01T00:00:00Z'),
       },
+      {
+        id: 'aaaaaaaa-bbbb-cccc-dddd-000000000002',
+        name: 'Piazza Community Tap',
+        address: 'Arada Subcity, Piazza District, Addis Ababa',
+        latitude: 9.0333,
+        longitude: 38.7500,
+        operatingHours: '24/7',
+        isActive: true,
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+      },
+    ];
+
+    const mockInactiveWaterPoint = {
+      id: INACTIVE_WATER_POINT_ID,
+      name: 'Inactive Water Point',
+      address: 'Test Address',
+      latitude: 0,
+      longitude: 0,
+      operatingHours: '09:00-17:00',
+      isActive: false,
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+    };
+
+    mockWaterPointFindMany.mockImplementation(({ where }) => {
+      if (where?.isActive === false) {
+        return Promise.resolve([mockInactiveWaterPoint]);
+      }
+      return Promise.resolve(mockActiveWaterPoints);
     });
+
+    mockWaterPointFindFirst.mockImplementation(({ where }) => {
+      if (where?.id === ACTIVE_WATER_POINT_ID && where?.isActive === true) {
+        return Promise.resolve(mockActiveWaterPoints[0]);
+      }
+      if (where?.id === INACTIVE_WATER_POINT_ID) {
+        return Promise.resolve(mockInactiveWaterPoint);
+      }
+      return Promise.resolve(null);
+    });
+
+    // No reports for any water point
+    mockReportFindMany.mockResolvedValue([]);
   });
 
   afterAll(async () => {
-    await prisma.waterPoint.delete({ where: { id: INACTIVE_WATER_POINT_ID } }).catch(() => {});
+    vi.clearAllMocks();
     await app.close();
-    await prisma.$disconnect();
   });
 
   it('returns 200 with active water points only by default', async () => {
@@ -73,10 +157,11 @@ describe('GET /water-points', () => {
       expect(wp.currentStatus.waterAvailable).toBe('unknown');
       expect(wp.currentStatus.queueSize).toBe('unknown');
       expect(wp.currentStatus.estimatedWaitMinutes).toBe('unknown');
+      expect(wp.currentStatus.confidence).toBe(0);
       expect(wp.currentStatus.lastReportedAt).toBeNull();
       expect(wp).not.toHaveProperty('passwordHash');
     }
-  });
+  }, 15000);
 
   it('returns 200 with only active water points when isActive=true', async () => {
     const response = await app.inject({
@@ -119,8 +204,34 @@ describe('GET /water-points', () => {
   });
 
   it('returns empty array when no water points match filter', async () => {
-    // Delete all inactive water points first
-    await prisma.waterPoint.deleteMany({ where: { isActive: false } });
+    // Delete all inactive water points first (mock)
+    mockWaterPointFindMany.mockImplementation(({ where }) => {
+      if (where?.isActive === false) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([
+        {
+          id: ACTIVE_WATER_POINT_ID,
+          name: 'Bole Medhanealem Well',
+          address: 'Bole Subcity, near Medhanealem Church, Addis Ababa',
+          latitude: 8.9867,
+          longitude: 38.7993,
+          operatingHours: '06:00-22:00',
+          isActive: true,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+        },
+        {
+          id: 'aaaaaaaa-bbbb-cccc-dddd-000000000002',
+          name: 'Piazza Community Tap',
+          address: 'Arada Subcity, Piazza District, Addis Ababa',
+          latitude: 9.0333,
+          longitude: 38.7500,
+          operatingHours: '24/7',
+          isActive: true,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+        },
+      ]);
+    });
 
     const response = await app.inject({
       method: 'GET',
@@ -140,9 +251,46 @@ describe('GET /water-points/:id', () => {
     app = Fastify({ logger: false });
     app.register(waterPointsRoutes);
     await app.ready();
+
+    // Setup mock water points for this test suite
+    const mockActiveWaterPoint = {
+      id: ACTIVE_WATER_POINT_ID,
+      name: 'Bole Medhanealem Well',
+      address: 'Bole Subcity, near Medhanealem Church, Addis Ababa',
+      latitude: 8.9867,
+      longitude: 38.7993,
+      operatingHours: '06:00-22:00',
+      isActive: true,
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+    };
+
+    const mockInactiveWaterPoint = {
+      id: INACTIVE_WATER_POINT_ID,
+      name: 'Inactive Water Point',
+      address: 'Test Address',
+      latitude: 0,
+      longitude: 0,
+      operatingHours: '09:00-17:00',
+      isActive: false,
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+    };
+
+    mockWaterPointFindFirst.mockImplementation(({ where }) => {
+      if (where?.id === ACTIVE_WATER_POINT_ID && where?.isActive === true) {
+        return Promise.resolve(mockActiveWaterPoint);
+      }
+      if (where?.id === INACTIVE_WATER_POINT_ID && where?.isActive === true) {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(null);
+    });
+
+    // No reports for any water point
+    mockReportFindMany.mockResolvedValue([]);
   });
 
   afterAll(async () => {
+    vi.clearAllMocks();
     await app.close();
   });
 
@@ -169,9 +317,10 @@ describe('GET /water-points/:id', () => {
     expect(wp.currentStatus.waterAvailable).toBe('unknown');
     expect(wp.currentStatus.queueSize).toBe('unknown');
     expect(wp.currentStatus.estimatedWaitMinutes).toBe('unknown');
+    expect(wp.currentStatus.confidence).toBe(0);
     expect(wp.currentStatus.lastReportedAt).toBeNull();
     expect(wp).not.toHaveProperty('passwordHash');
-  });
+  }, 15000);
 
   it('returns 404 when water point exists but is inactive', async () => {
     const response = await app.inject({
@@ -229,19 +378,52 @@ describe('POST /water-points/:id/reports', () => {
     app.register(waterPointsRoutes);
     await app.ready();
 
-    // Create test user and get token
+    // Setup mock user
+    testUserId = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
     const passwordHash = await bcrypt.hash(TEST_USER_PASSWORD, 12);
-    const user = await prisma.user.upsert({
-      where: { email: TEST_USER_EMAIL },
-      update: { passwordHash },
-      create: {
-        email: TEST_USER_EMAIL,
-        passwordHash,
-        role: 'resident',
-      },
-    });
-    testUserId = user.id;
+    const mockUser = {
+      id: testUserId,
+      email: TEST_USER_EMAIL,
+      passwordHash,
+      role: 'resident',
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+    };
+mockUserUpsert.mockResolvedValue(mockUser);
 
+    mockUserFindUnique.mockResolvedValue(mockUser);
+
+    // Setup mock water point
+    const mockActiveWaterPoint = {
+      id: ACTIVE_WATER_POINT_ID,
+      name: 'Bole Medhanealem Well',
+      address: 'Bole Subcity, near Medhanealem Church, Addis Ababa',
+      latitude: 8.9867,
+      longitude: 38.7993,
+      operatingHours: '06:00-22:00',
+      isActive: true,
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+    };
+    mockWaterPointFindFirst.mockImplementation(({ where }) => {
+      if (where?.id === ACTIVE_WATER_POINT_ID && where?.isActive === true) {
+        return Promise.resolve(mockActiveWaterPoint);
+      }
+      return Promise.resolve(null);
+    });
+
+    // Setup mock report creation
+    mockReportCreate.mockImplementation(({ data }) => {
+      return Promise.resolve({
+        id: 'rrrrrrrr-rrrr-rrrr-rrrr-rrrrrrrrrrrr',
+        waterPointId: data.waterPointId,
+        userId: data.userId,
+        waterAvailable: data.waterAvailable,
+        queueSize: data.queueSize,
+        estimatedWaitMinutes: null,
+        createdAt: new Date(),
+      });
+    });
+
+    // Login to get token
     const loginResponse = await app.inject({
       method: 'POST',
       url: '/auth/login',
@@ -252,15 +434,12 @@ describe('POST /water-points/:id/reports', () => {
   });
 
   afterAll(async () => {
-    await prisma.user.delete({ where: { email: TEST_USER_EMAIL } }).catch(() => {});
-    await prisma.report.deleteMany({ where: { userId: testUserId } }).catch(() => {});
+    vi.clearAllMocks();
     await app.close();
-    await prisma.$disconnect();
   });
 
-  beforeEach(async () => {
-    // Clean up reports before each test
-    await prisma.report.deleteMany({ where: { userId: testUserId } }).catch(() => {});
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   it('returns 201 with report when authenticated and valid data', async () => {

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../prisma/client.js';
+import { calculateWaterPointStatus, type CurrentStatus } from '../services/reporting.js';
 
 const waterPointIdSchema = z.string().uuid();
 
@@ -26,12 +27,7 @@ type WaterPointResponse = {
   operatingHours: string;
   isActive: boolean;
   createdAt: string;
-  currentStatus: {
-    waterAvailable: 'unknown';
-    queueSize: 'unknown';
-    estimatedWaitMinutes: 'unknown';
-    lastReportedAt: null;
-  };
+  currentStatus: CurrentStatus;
 };
 
 const waterPointsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -65,22 +61,22 @@ const waterPointsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
 
-        const response = waterPoints.map((wp): WaterPointResponse => ({
-          id: wp.id,
-          name: wp.name,
-          address: wp.address,
-          latitude: Number(wp.latitude),
-          longitude: Number(wp.longitude),
-          operatingHours: wp.operatingHours,
-          isActive: wp.isActive,
-          createdAt: wp.createdAt.toISOString(),
-          currentStatus: {
-            waterAvailable: 'unknown' as const,
-            queueSize: 'unknown' as const,
-            estimatedWaitMinutes: 'unknown' as const,
-            lastReportedAt: null,
-          },
-        }));
+        const response = await Promise.all(
+          waterPoints.map(async (wp): Promise<WaterPointResponse> => {
+            const currentStatus = await calculateWaterPointStatus(wp.id);
+            return {
+              id: wp.id,
+              name: wp.name,
+              address: wp.address,
+              latitude: Number(wp.latitude),
+              longitude: Number(wp.longitude),
+              operatingHours: wp.operatingHours,
+              isActive: wp.isActive,
+              createdAt: wp.createdAt.toISOString(),
+              currentStatus,
+            };
+          })
+        );
 
         return reply.send({ waterPoints: response });
       } catch (error) {
@@ -121,6 +117,8 @@ const waterPointsRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(404).send({ error: 'Water point not found.' });
         }
 
+        const currentStatus = await calculateWaterPointStatus(waterPoint.id);
+
         const response: WaterPointResponse = {
           id: waterPoint.id,
           name: waterPoint.name,
@@ -130,12 +128,7 @@ const waterPointsRoutes: FastifyPluginAsync = async (fastify) => {
           operatingHours: waterPoint.operatingHours,
           isActive: waterPoint.isActive,
           createdAt: waterPoint.createdAt.toISOString(),
-          currentStatus: {
-            waterAvailable: 'unknown' as const,
-            queueSize: 'unknown' as const,
-            estimatedWaitMinutes: 'unknown' as const,
-            lastReportedAt: null,
-          },
+          currentStatus,
         };
 
         return reply.send({ waterPoint: response });
