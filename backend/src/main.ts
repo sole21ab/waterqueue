@@ -4,6 +4,7 @@ import jwt from '@fastify/jwt';
 import { logger } from './utils/logger.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
+import waterPointsRoutes from './routes/waterPoints.js';
 
 const fastify = Fastify({
   logger: false,
@@ -24,6 +25,7 @@ await fastify.register(jwt, {
 
 fastify.register(healthRoutes);
 fastify.register(authRoutes);
+fastify.register(waterPointsRoutes);
 
 const start = async () => {
   try {
