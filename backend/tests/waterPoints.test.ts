@@ -3,11 +3,12 @@ import Fastify from 'fastify';
 import bcrypt from 'bcryptjs';
 import jwt from '@fastify/jwt';
 
-const { mockWaterPointFindMany, mockWaterPointFindFirst, mockWaterPointFindUnique, mockWaterPointCreate, mockWaterPointDelete, mockWaterPointDeleteMany, mockWaterPointUpsert, mockUserFindUnique, mockUserCreate, mockUserUpsert, mockUserDelete, mockUserDeleteMany, mockReportFindMany, mockReportCreate, mockReportDeleteMany, mockDisconnect } = vi.hoisted(() => ({
+const { mockWaterPointFindMany, mockWaterPointFindFirst, mockWaterPointFindUnique, mockWaterPointCreate, mockWaterPointUpdate, mockWaterPointDelete, mockWaterPointDeleteMany, mockWaterPointUpsert, mockUserFindUnique, mockUserCreate, mockUserUpsert, mockUserDelete, mockUserDeleteMany, mockReportFindMany, mockReportCreate, mockReportDeleteMany, mockDisconnect } = vi.hoisted(() => ({
   mockWaterPointFindMany: vi.fn(),
   mockWaterPointFindFirst: vi.fn(),
   mockWaterPointFindUnique: vi.fn(),
   mockWaterPointCreate: vi.fn(),
+  mockWaterPointUpdate: vi.fn(),
   mockWaterPointDelete: vi.fn(),
   mockWaterPointDeleteMany: vi.fn(),
   mockWaterPointUpsert: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../src/prisma/client.js', () => ({
       findFirst: mockWaterPointFindFirst,
       findUnique: mockWaterPointFindUnique,
       create: mockWaterPointCreate,
+      update: mockWaterPointUpdate,
       delete: mockWaterPointDelete,
       deleteMany: mockWaterPointDeleteMany,
       upsert: mockWaterPointUpsert,
@@ -623,5 +625,315 @@ mockUserUpsert.mockResolvedValue(mockUser);
     expect(response.statusCode).toBe(201);
     const body = JSON.parse(response.payload);
     expect(body.report.queueSize).toBe(50);
+  });
+});
+
+describe('Admin water-point management', () => {
+  let app: ReturnType<typeof Fastify>;
+  let adminToken: string;
+  let residentToken: string;
+  const adminUserId = 'admin-user-id-0000-0000-000000000001';
+  const residentUserId = 'resident-user-id-0000-0000-000000000002';
+
+  const mockAdminUser = {
+    id: adminUserId,
+    email: 'admin@example.com',
+    passwordHash: 'hashed',
+    role: 'admin',
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+  };
+
+  const mockResidentUser = {
+    id: residentUserId,
+    email: 'resident@example.com',
+    passwordHash: 'hashed',
+    role: 'resident',
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+  };
+
+  const mockActiveWaterPoint = {
+    id: ACTIVE_WATER_POINT_ID,
+    name: 'Bole Medhanealem Well',
+    address: 'Bole Subcity, near Medhanealem Church, Addis Ababa',
+    latitude: 8.9867,
+    longitude: 38.7993,
+    operatingHours: '06:00-22:00',
+    isActive: true,
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+  };
+
+  beforeAll(async () => {
+    app = Fastify({ logger: false });
+    await app.register(jwt, {
+      secret: process.env.JWT_SECRET || 'test-secret-key-that-is-at-least-32-chars-long',
+      sign: { expiresIn: '24h' },
+    });
+    app.register(authRoutes);
+    app.register(waterPointsRoutes);
+    await app.ready();
+
+    const adminPasswordHash = await bcrypt.hash('AdminPass123456', 12);
+    const residentPasswordHash = await bcrypt.hash('ResidentPass123456', 12);
+
+    mockUserFindUnique.mockImplementation(({ where }) => {
+      if (where.email === 'admin@example.com') {
+        return Promise.resolve({ ...mockAdminUser, passwordHash: adminPasswordHash });
+      }
+      if (where.email === 'resident@example.com') {
+        return Promise.resolve({ ...mockResidentUser, passwordHash: residentPasswordHash });
+      }
+      return Promise.resolve(null);
+    });
+
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'admin@example.com', password: 'AdminPass123456' },
+    });
+    adminToken = JSON.parse(adminLogin.payload).token;
+
+    const residentLogin = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'resident@example.com', password: 'ResidentPass123456' },
+    });
+    residentToken = JSON.parse(residentLogin.payload).token;
+  });
+
+  afterAll(async () => {
+    vi.clearAllMocks();
+    await app.close();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('POST /water-points returns 201 for admin', async () => {
+    const created = {
+      id: 'new-wp-id',
+      name: 'New Water Point',
+      address: 'New Address',
+      latitude: 9.0,
+      longitude: 38.8,
+      operatingHours: '08:00-18:00',
+      isActive: true,
+      createdAt: new Date(),
+    };
+    mockWaterPointCreate.mockResolvedValue(created);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/water-points',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: {
+        name: 'New Water Point',
+        address: 'New Address',
+        latitude: 9.0,
+        longitude: 38.8,
+        operatingHours: '08:00-18:00',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const body = JSON.parse(response.payload);
+    expect(body).toHaveProperty('waterPoint');
+    expect(body.waterPoint.name).toBe('New Water Point');
+    expect(body.waterPoint.isActive).toBe(true);
+    expect(mockWaterPointCreate).toHaveBeenCalledWith({
+      data: {
+        name: 'New Water Point',
+        address: 'New Address',
+        latitude: 9.0,
+        longitude: 38.8,
+        operatingHours: '08:00-18:00',
+        isActive: true,
+      },
+      select: expect.anything(),
+    });
+  });
+
+  it('POST /water-points returns 403 for non-admin user', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/water-points',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: {
+        name: 'New Water Point',
+        address: 'New Address',
+        latitude: 9.0,
+        longitude: 38.8,
+        operatingHours: '08:00-18:00',
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    const body = JSON.parse(response.payload);
+    expect(body).toHaveProperty('error', 'Admin access required.');
+  });
+
+  it('POST /water-points returns 401 without authentication token', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/water-points',
+      payload: {
+        name: 'New Water Point',
+        address: 'New Address',
+        latitude: 9.0,
+        longitude: 38.8,
+        operatingHours: '08:00-18:00',
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('POST /water-points returns 400 for invalid body', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/water-points',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: '', address: 'New Address', latitude: 9.0, longitude: 38.8, operatingHours: '08:00-18:00' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const body = JSON.parse(response.payload);
+    expect(body).toHaveProperty('error', 'Invalid request body.');
+  });
+
+  it('PUT /water-points/:id returns 200 for admin', async () => {
+    const updated = {
+      id: ACTIVE_WATER_POINT_ID,
+      name: 'Updated Name',
+      address: 'Updated Address',
+      latitude: 9.0,
+      longitude: 38.8,
+      operatingHours: '09:00-19:00',
+      isActive: true,
+      createdAt: new Date(),
+    };
+    mockWaterPointFindUnique.mockResolvedValue(mockActiveWaterPoint);
+    mockWaterPointUpdate.mockResolvedValue(updated);
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/water-points/${ACTIVE_WATER_POINT_ID}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'Updated Name', operatingHours: '09:00-19:00' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.payload);
+    expect(body).toHaveProperty('waterPoint');
+    expect(body.waterPoint.name).toBe('Updated Name');
+    expect(mockWaterPointUpdate).toHaveBeenCalledWith({
+      where: { id: ACTIVE_WATER_POINT_ID },
+      data: { name: 'Updated Name', operatingHours: '09:00-19:00' },
+      select: expect.anything(),
+    });
+  });
+
+  it('PUT /water-points/:id returns 404 when water point does not exist', async () => {
+    mockWaterPointFindUnique.mockResolvedValue(null);
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/water-points/${NONEXISTENT_WATER_POINT_ID}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'X' },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('PUT /water-points/:id returns 403 for non-admin user', async () => {
+    mockWaterPointFindUnique.mockResolvedValue(mockActiveWaterPoint);
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/water-points/${ACTIVE_WATER_POINT_ID}`,
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: { name: 'X' },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('PUT /water-points/:id returns 400 for empty body', async () => {
+    mockWaterPointFindUnique.mockResolvedValue(mockActiveWaterPoint);
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/water-points/${ACTIVE_WATER_POINT_ID}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('PUT /water-points/:id returns 400 for invalid ID', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/water-points/not-a-uuid',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { name: 'X' },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('PATCH /water-points/:id/deactivate returns 200 for admin', async () => {
+    const deactivated = { ...mockActiveWaterPoint, isActive: false };
+    mockWaterPointFindUnique.mockResolvedValue(mockActiveWaterPoint);
+    mockWaterPointUpdate.mockResolvedValue(deactivated);
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/water-points/${ACTIVE_WATER_POINT_ID}/deactivate`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.payload);
+    expect(body.waterPoint.isActive).toBe(false);
+    expect(mockWaterPointUpdate).toHaveBeenCalledWith({
+      where: { id: ACTIVE_WATER_POINT_ID },
+      data: { isActive: false },
+      select: expect.anything(),
+    });
+  });
+
+  it('PATCH /water-points/:id/deactivate returns 404 when water point does not exist', async () => {
+    mockWaterPointFindUnique.mockResolvedValue(null);
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/water-points/${NONEXISTENT_WATER_POINT_ID}/deactivate`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('PATCH /water-points/:id/deactivate returns 403 for non-admin user', async () => {
+    mockWaterPointFindUnique.mockResolvedValue(mockActiveWaterPoint);
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/water-points/${ACTIVE_WATER_POINT_ID}/deactivate`,
+      headers: { authorization: `Bearer ${residentToken}` },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('PATCH /water-points/:id/deactivate returns 401 without authentication token', async () => {
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/water-points/${ACTIVE_WATER_POINT_ID}/deactivate`,
+    });
+
+    expect(response.statusCode).toBe(401);
   });
 });

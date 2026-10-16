@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../prisma/client.js';
 import { calculateWaterPointStatus, type CurrentStatus } from '../services/reporting.js';
+import { authenticate, requireAdmin } from '../middleware/auth.js';
 
 const waterPointIdSchema = z.string().uuid();
 
@@ -16,6 +17,24 @@ const listQuerySchema = z.object({
 const reportSchema = z.object({
   waterAvailable: z.boolean(),
   queueSize: z.number().int().min(0).max(50),
+});
+
+const createWaterPointSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  address: z.string().trim().min(1).max(500),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  operatingHours: z.string().trim().min(1).max(100),
+  isActive: z.boolean().optional().default(true),
+});
+
+const updateWaterPointSchema = z.object({
+  name: z.string().trim().min(1).max(255).optional(),
+  address: z.string().trim().min(1).max(500).optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  operatingHours: z.string().trim().min(1).max(100).optional(),
+  isActive: z.boolean().optional(),
 });
 
 type WaterPointResponse = {
@@ -205,6 +224,166 @@ const waterPointsRoutes: FastifyPluginAsync = async (fastify) => {
       } catch (error) {
         request.log.error({ err: error }, 'Failed to create report');
         return reply.code(500).send({ error: 'Unable to submit report.' });
+      }
+    }
+  );
+
+  // Admin: create a new water point.
+  fastify.post<{ Body: z.infer<typeof createWaterPointSchema> }>(
+    '/water-points',
+    { preHandler: [authenticate, requireAdmin] },
+    async (request, reply) => {
+      const bodyParsed = createWaterPointSchema.safeParse(request.body);
+
+      if (!bodyParsed.success) {
+        return reply.code(400).send({
+          error: 'Invalid request body.',
+          details: bodyParsed.error.flatten().fieldErrors,
+        });
+      }
+
+      const { name, address, latitude, longitude, operatingHours, isActive } = bodyParsed.data;
+
+      try {
+        const waterPoint = await prisma.waterPoint.create({
+          data: { name, address, latitude, longitude, operatingHours, isActive },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+            operatingHours: true,
+            isActive: true,
+            createdAt: true,
+          },
+        });
+
+        return reply.code(201).send({
+          waterPoint: {
+            ...waterPoint,
+            latitude: Number(waterPoint.latitude),
+            longitude: Number(waterPoint.longitude),
+          },
+        });
+      } catch (error) {
+        request.log.error({ err: error }, 'Failed to create water point');
+        return reply.code(500).send({ error: 'Unable to create water point.' });
+      }
+    }
+  );
+
+  // Admin: edit an existing water point.
+  fastify.put<{ Params: { id: string }; Body: z.infer<typeof updateWaterPointSchema> }>(
+    '/water-points/:id',
+    { preHandler: [authenticate, requireAdmin] },
+    async (request, reply) => {
+      const idParsed = waterPointIdSchema.safeParse(request.params.id);
+
+      if (!idParsed.success) {
+        return reply.code(400).send({ error: 'Invalid water point ID.' });
+      }
+
+      const bodyParsed = updateWaterPointSchema.safeParse(request.body);
+
+      if (!bodyParsed.success) {
+        return reply.code(400).send({
+          error: 'Invalid request body.',
+          details: bodyParsed.error.flatten().fieldErrors,
+        });
+      }
+
+      const updateData = Object.fromEntries(
+        Object.entries(bodyParsed.data).filter(([, value]) => value !== undefined)
+      );
+
+      if (Object.keys(updateData).length === 0) {
+        return reply.code(400).send({ error: 'At least one field must be provided.' });
+      }
+
+      try {
+        const existing = await prisma.waterPoint.findUnique({
+          where: { id: idParsed.data },
+        });
+
+        if (!existing) {
+          return reply.code(404).send({ error: 'Water point not found.' });
+        }
+
+        const updated = await prisma.waterPoint.update({
+          where: { id: idParsed.data },
+          data: updateData,
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+            operatingHours: true,
+            isActive: true,
+            createdAt: true,
+          },
+        });
+
+        return reply.send({
+          waterPoint: {
+            ...updated,
+            latitude: Number(updated.latitude),
+            longitude: Number(updated.longitude),
+          },
+        });
+      } catch (error) {
+        request.log.error({ err: error }, 'Failed to update water point');
+        return reply.code(500).send({ error: 'Unable to update water point.' });
+      }
+    }
+  );
+
+  // Admin: deactivate a water point.
+  fastify.patch<{ Params: { id: string } }>(
+    '/water-points/:id/deactivate',
+    { preHandler: [authenticate, requireAdmin] },
+    async (request, reply) => {
+      const idParsed = waterPointIdSchema.safeParse(request.params.id);
+
+      if (!idParsed.success) {
+        return reply.code(400).send({ error: 'Invalid water point ID.' });
+      }
+
+      try {
+        const existing = await prisma.waterPoint.findUnique({
+          where: { id: idParsed.data },
+        });
+
+        if (!existing) {
+          return reply.code(404).send({ error: 'Water point not found.' });
+        }
+
+        const updated = await prisma.waterPoint.update({
+          where: { id: idParsed.data },
+          data: { isActive: false },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+            operatingHours: true,
+            isActive: true,
+            createdAt: true,
+          },
+        });
+
+        return reply.send({
+          waterPoint: {
+            ...updated,
+            latitude: Number(updated.latitude),
+            longitude: Number(updated.longitude),
+          },
+        });
+      } catch (error) {
+        request.log.error({ err: error }, 'Failed to deactivate water point');
+        return reply.code(500).send({ error: 'Unable to deactivate water point.' });
       }
     }
   );
