@@ -10,18 +10,25 @@ export interface CurrentStatus {
   lastReportedAt: string | null;
 }
 
-interface ReportData {
+interface ReportWithVotes {
+  id: string;
   waterAvailable: boolean;
   queueSize: number;
   createdAt: Date;
+  votes: { voteType: 'confirm' | 'contradict' }[];
 }
 
 const MAX_AGE_MINUTES = 120;
 
-function calculateWeight(reportAgeMinutes: number): number {
+function calculateRecencyWeight(reportAgeMinutes: number): number {
   if (reportAgeMinutes <= 0) return 1;
   if (reportAgeMinutes >= MAX_AGE_MINUTES) return 0;
   return 1 - reportAgeMinutes / MAX_AGE_MINUTES;
+}
+
+function calculateVoteFactor(confirms: number, contradicts: number): number {
+  const voteFactor = 1.0 + 0.1 * confirms - 0.15 * contradicts;
+  return Math.min(1.5, Math.max(0.2, voteFactor));
 }
 
 function weightedMedian(values: number[], weights: number[]): number {
@@ -58,19 +65,27 @@ export async function calculateWaterPointStatus(waterPointId: string): Promise<C
       },
     },
     select: {
+      id: true,
       waterAvailable: true,
       queueSize: true,
       createdAt: true,
+      votes: {
+        select: {
+          voteType: true,
+        },
+      },
     },
     orderBy: {
       createdAt: 'desc',
     },
   });
 
-  const reportData: ReportData[] = reports.map(r => ({
+  const reportData: ReportWithVotes[] = reports.map(r => ({
+    id: r.id,
     waterAvailable: r.waterAvailable,
     queueSize: r.queueSize,
     createdAt: r.createdAt,
+    votes: r.votes,
   })).filter(r => {
     const ageMinutes = (now.getTime() - r.createdAt.getTime()) / (1000 * 60);
     return ageMinutes < MAX_AGE_MINUTES;
@@ -86,31 +101,64 @@ export async function calculateWaterPointStatus(waterPointId: string): Promise<C
     };
   }
 
-  const weights = reportData.map(r => {
-    const ageMinutes = (now.getTime() - r.createdAt.getTime()) / (1000 * 60);
-    return calculateWeight(ageMinutes);
-  });
+  const votesByReportId = new Map<string, { confirms: number; contradicts: number }>();
+  for (const report of reportData) {
+    const entry = { confirms: 0, contradicts: 0 };
+    for (const vote of report.votes ?? []) {
+      if (vote.voteType === 'confirm') {
+        entry.confirms += 1;
+      } else {
+        entry.contradicts += 1;
+      }
+    }
+    votesByReportId.set(report.id, entry);
+  }
 
-  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-  const maxPossibleWeight = reports.length;
+  const effectiveWeights: number[] = [];
+  let availableWeight = 0;
+  let totalEffectiveWeight = 0;
 
-  const availabilityScore = reportData.reduce((sum, r, i) => {
-    return sum + (r.waterAvailable ? 1 : 0) * weights[i];
-  }, 0) / totalWeight;
+  for (const report of reportData) {
+    const ageMinutes = (now.getTime() - report.createdAt.getTime()) / (1000 * 60);
+    const recencyWeight = calculateRecencyWeight(ageMinutes);
+
+    const voteCounts = votesByReportId.get(report.id) || { confirms: 0, contradicts: 0 };
+    const voteFactor = calculateVoteFactor(voteCounts.confirms, voteCounts.contradicts);
+
+    const effectiveWeight = recencyWeight * voteFactor;
+    effectiveWeights.push(effectiveWeight);
+    totalEffectiveWeight += effectiveWeight;
+
+    if (report.waterAvailable) {
+      availableWeight += effectiveWeight;
+    }
+  }
+
+  const availabilityRatio = totalEffectiveWeight > 0 ? availableWeight / totalEffectiveWeight : 0;
 
   let waterAvailable: WaterAvailabilityStatus;
-  if (availabilityScore >= 0.65) {
+  if (availabilityRatio >= 0.65) {
     waterAvailable = 'available';
-  } else if (availabilityScore <= 0.35) {
+  } else if (availabilityRatio <= 0.35) {
     waterAvailable = 'unavailable';
   } else {
     waterAvailable = 'uncertain';
   }
 
-  const queueSizes = reportData.map(r => r.queueSize);
-  const medianQueueSize = Math.round(weightedMedian(queueSizes, weights));
+  const availableReports = reportData
+    .map((r, i) => ({ queueSize: r.queueSize, weight: effectiveWeights[i], waterAvailable: r.waterAvailable }))
+    .filter(r => r.weight > 0 && r.waterAvailable);
 
-  const confidence = Math.min(100, Math.max(0, Math.round((totalWeight / maxPossibleWeight) * 100)));
+  let medianQueueSize = 0;
+  if (availableReports.length > 0) {
+    const queueSizes = availableReports.map(r => r.queueSize);
+    const weights = availableReports.map(r => r.weight);
+    medianQueueSize = Math.round(weightedMedian(queueSizes, weights));
+  }
+
+  const N = reportData.length;
+  const maxPossibleEffectiveWeight = N * 1.5;
+  const confidence = Math.min(100, Math.max(0, Math.round((totalEffectiveWeight / maxPossibleEffectiveWeight) * 100)));
 
   const lastReportedAt = reports[0].createdAt.toISOString();
 
