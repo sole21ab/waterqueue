@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import jwt from '@fastify/jwt';
+import cors from '@fastify/cors';
 import { logger } from './utils/logger.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
@@ -22,6 +23,12 @@ await fastify.register(jwt, {
   sign: {
     expiresIn: '24h',
   },
+});
+
+// Browser clients (Flutter Web) call this API from a different origin,
+// so every response must carry the CORS headers the browser expects.
+await fastify.register(cors, {
+  origin: true,
 });
 
 fastify.register(healthRoutes);
