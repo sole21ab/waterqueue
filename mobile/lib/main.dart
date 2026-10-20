@@ -1,11 +1,32 @@
 import 'package:flutter/material.dart';
 
+import 'screens/auth_screen.dart';
+import 'screens/home_screen.dart';
+import 'services/api_client.dart';
+import 'state/session.dart';
+
 void main() {
   runApp(const WaterQueueApp());
 }
 
-class WaterQueueApp extends StatelessWidget {
-  const WaterQueueApp({super.key});
+class WaterQueueApp extends StatefulWidget {
+  const WaterQueueApp({super.key, this.apiClient});
+
+  final ApiClient? apiClient;
+
+  @override
+  State<WaterQueueApp> createState() => _WaterQueueAppState();
+}
+
+class _WaterQueueAppState extends State<WaterQueueApp> {
+  final Session _session = Session();
+  late final ApiClient _apiClient = widget.apiClient ?? ApiClient();
+
+  @override
+  void dispose() {
+    _session.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -15,50 +36,21 @@ class WaterQueueApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
       ),
-      home: const HomeScreen(),
-    );
-  }
-}
-
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('WaterQueue'),
-        centerTitle: true,
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.water_drop, size: 80, color: Colors.teal),
-            const SizedBox(height: 16),
-            const Text(
-              'WaterQueue',
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Check community water-point availability and queue estimates.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 40),
-            const Text(
-              'No water points yet',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Add water points to see availability and queue times.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-          ],
-        ),
+      home: ListenableBuilder(
+        listenable: _session,
+        builder: (BuildContext context, Widget? child) {
+          final user = _session.user;
+          if (_session.isAuthenticated && user != null) {
+            return HomeScreen(
+              user: user,
+              onSignOut: _session.signOut,
+            );
+          }
+          return AuthScreen(
+            apiClient: _apiClient,
+            onAuthenticated: _session.signIn,
+          );
+        },
       ),
     );
   }
