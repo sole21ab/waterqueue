@@ -4,6 +4,7 @@ import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/api_client.dart';
 import 'state/session.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   runApp(const WaterQueueApp());
@@ -32,10 +33,7 @@ class _WaterQueueAppState extends State<WaterQueueApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'WaterQueue',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-      ),
+      theme: AppTheme.light(),
       home: ListenableBuilder(
         listenable: _session,
         builder: (BuildContext context, Widget? child) {
@@ -43,6 +41,7 @@ class _WaterQueueAppState extends State<WaterQueueApp> {
           if (_session.isAuthenticated && user != null) {
             return HomeScreen(
               user: user,
+              apiClient: _apiClient,
               onSignOut: _session.signOut,
             );
           }

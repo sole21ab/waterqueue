@@ -19,11 +19,38 @@ String _loginResponse() {
   });
 }
 
+String _waterPointsResponse() {
+  return jsonEncode(<String, Object?>{
+    'waterPoints': <Map<String, Object?>>[
+      <String, Object?>{
+        'id': 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+        'name': 'Bole Medhanealem Well',
+        'address': 'Bole Subcity, near Medhanealem Church, Addis Ababa',
+        'latitude': 8.9867,
+        'longitude': 38.7993,
+        'operatingHours': '06:00-22:00',
+        'isActive': true,
+        'createdAt': '2024-01-01T00:00:00.000Z',
+        'currentStatus': <String, Object?>{
+          'waterAvailable': 'available',
+          'queueSize': 5,
+          'estimatedWaitMinutes': 10,
+          'confidence': 80,
+          'lastReportedAt': '2024-05-01T10:00:00.000Z',
+        },
+      },
+    ],
+  });
+}
+
 ApiClient _apiClient() {
   return ApiClient(
-    client: MockClient(
-      (_) async => http.Response(_loginResponse(), 200),
-    ),
+    client: MockClient((http.Request request) async {
+      if (request.url.path == '/water-points') {
+        return http.Response(_waterPointsResponse(), 200);
+      }
+      return http.Response(_loginResponse(), 200);
+    }),
   );
 }
 
@@ -37,7 +64,7 @@ void main() {
     expect(find.byKey(const Key('auth-password')), findsOneWidget);
   });
 
-  testWidgets('Signed in user sees their email and role', (
+  testWidgets('Signed in user sees their email, role and the water points', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(WaterQueueApp(apiClient: _apiClient()));
@@ -57,7 +84,8 @@ void main() {
 
     expect(find.text('resident@example.com'), findsOneWidget);
     expect(find.text('Role: resident'), findsOneWidget);
-    expect(find.text('No water points yet'), findsOneWidget);
+    expect(find.text('Bole Medhanealem Well'), findsOneWidget);
+    expect(find.text('Water available'), findsOneWidget);
   });
 
   testWidgets('Signing out returns to the login screen', (

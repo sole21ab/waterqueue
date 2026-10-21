@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
+import '../theme/app_theme.dart';
 
 enum AuthMode { login, register }
 
@@ -148,7 +149,11 @@ class _AuthScreenState extends State<AuthScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.water_drop, size: 56, color: Colors.teal),
+                  const Icon(
+                    Icons.water_drop,
+                    size: 56,
+                    color: AppColors.primary,
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     _isLogin ? 'Welcome back' : 'Create account',
@@ -162,7 +167,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         : 'Register a resident account to get started.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey.shade700,
+                      color: AppColors.textMuted,
                     ),
                   ),
                   const SizedBox(height: 24),

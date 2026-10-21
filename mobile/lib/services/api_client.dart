@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/auth_user.dart';
+import '../models/water_point.dart';
 
 const String kDefaultApiBaseUrl = 'http://localhost:3000';
 
@@ -48,6 +49,61 @@ class ApiClient {
     required String password,
   }) {
     return _post('/auth/login', email: email, password: password);
+  }
+
+  /// Fetches the active water points from `GET /water-points`.
+  ///
+  /// The backend route is public (it has no authentication pre-handler), so no
+  /// bearer token is attached to the request.
+  Future<List<WaterPoint>> fetchWaterPoints() async {
+    final Map<String, dynamic> body = await _get('/water-points');
+
+    final Object? rawWaterPoints = body['waterPoints'];
+    if (rawWaterPoints is! List) {
+      throw const ApiException(
+        'The server returned an unexpected response. Please try again.',
+      );
+    }
+
+    final List<WaterPoint> waterPoints = <WaterPoint>[];
+    for (final Object? entry in rawWaterPoints) {
+      if (entry is! Map<String, dynamic>) {
+        throw const ApiException(
+          'The server returned an unexpected response. Please try again.',
+        );
+      }
+      waterPoints.add(WaterPoint.fromJson(entry));
+    }
+
+    return waterPoints;
+  }
+
+  Future<Map<String, dynamic>> _get(String path) async {
+    final Uri uri = Uri.parse('$baseUrl$path');
+
+    late final http.Response response;
+    try {
+      response = await _client.get(uri).timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw const ApiException(
+        'The server took too long to respond. Please try again.',
+      );
+    } on http.ClientException {
+      throw const ApiException(
+        'Could not reach the server. Make sure the backend is running.',
+      );
+    }
+
+    final Map<String, dynamic> body = _decodeBody(response);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return body;
+    }
+
+    throw ApiException(
+      _resourceErrorMessage(response, body),
+      statusCode: response.statusCode,
+    );
   }
 
   Future<AuthResult> _post(
@@ -129,6 +185,24 @@ class ApiClient {
         return 'The server could not complete the request. Please try again.';
       default:
         return 'Request failed with status ${response.statusCode}.';
+    }
+  }
+
+  String _resourceErrorMessage(http.Response response, Map<String, dynamic> body) {
+    final Object? serverError = body['error'];
+    if (serverError is String && serverError.trim().isNotEmpty) {
+      return serverError;
+    }
+
+    switch (response.statusCode) {
+      case 400:
+        return 'The server rejected the request.';
+      case 404:
+        return 'The requested resource was not found.';
+      case 500:
+        return 'The server could not load water points. Please try again.';
+      default:
+        return 'Could not load water points (status ${response.statusCode}).';
     }
   }
 }
