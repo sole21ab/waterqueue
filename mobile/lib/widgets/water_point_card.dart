@@ -25,9 +25,16 @@ String formatRelativeTime(DateTime? time) {
 /// Renders a single water point with the location, availability and queue
 /// information the backend returns for it.
 class WaterPointCard extends StatelessWidget {
-  const WaterPointCard({super.key, required this.waterPoint});
+  const WaterPointCard({
+    super.key,
+    required this.waterPoint,
+    required this.onReport,
+  });
 
   final WaterPoint waterPoint;
+
+  /// Called when the resident asks to report the current status.
+  final VoidCallback onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -101,6 +108,16 @@ class WaterPointCard extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: const Key('water-point-report'),
+                onPressed: onReport,
+                icon: const Icon(Icons.edit_note),
+                label: const Text('Report status'),
               ),
             ),
           ],

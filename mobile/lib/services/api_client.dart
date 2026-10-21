@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/auth_user.dart';
+import '../models/report.dart';
 import '../models/water_point.dart';
 
 const String kDefaultApiBaseUrl = 'http://localhost:3000';
@@ -76,6 +77,40 @@ class ApiClient {
     }
 
     return waterPoints;
+  }
+
+  /// Submits a resident report to `POST /water-points/:id/reports`.
+  ///
+  /// The route requires the signed-in resident's JWT as a bearer token, so
+  /// [token] is attached as an `Authorization` header.
+  Future<Report> submitReport({
+    required String waterPointId,
+    required String token,
+    required bool waterAvailable,
+    required int queueSize,
+  }) async {
+    if (queueSize < 0 || queueSize > 50) {
+      throw const ApiException('Queue size must be between 0 and 50.');
+    }
+
+    final Map<String, dynamic> body = await _postJson(
+      '/water-points/${Uri.encodeComponent(waterPointId)}/reports',
+      body: <String, Object?>{
+        'waterAvailable': waterAvailable,
+        'queueSize': queueSize,
+      },
+      headers: <String, String>{'Authorization': 'Bearer $token'},
+      errorMessage: _reportErrorMessage,
+    );
+
+    final Object? rawReport = body['report'];
+    if (rawReport is! Map<String, dynamic>) {
+      throw const ApiException(
+        'The server returned an unexpected response. Please try again.',
+      );
+    }
+
+    return Report.fromJson(rawReport);
   }
 
   Future<Map<String, dynamic>> _get(String path) async {
@@ -156,6 +191,53 @@ class ApiClient {
     );
   }
 
+  /// Sends a JSON body to [path] and returns the decoded response body.
+  ///
+  /// [errorMessage] builds the message of the [ApiException] thrown for a
+  /// non successful response.
+  Future<Map<String, dynamic>> _postJson(
+    String path, {
+    required Map<String, Object?> body,
+    required String Function(http.Response response, Map<String, dynamic> body)
+    errorMessage,
+    Map<String, String> headers = const <String, String>{},
+  }) async {
+    final Uri uri = Uri.parse('$baseUrl$path');
+
+    late final http.Response response;
+    try {
+      response = await _client
+          .post(
+            uri,
+            headers: <String, String>{
+              'Content-Type': 'application/json',
+              ...headers,
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw const ApiException(
+        'The server took too long to respond. Please try again.',
+      );
+    } on http.ClientException {
+      throw const ApiException(
+        'Could not reach the server. Make sure the backend is running.',
+      );
+    }
+
+    final Map<String, dynamic> decoded = _decodeBody(response);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return decoded;
+    }
+
+    throw ApiException(
+      errorMessage(response, decoded),
+      statusCode: response.statusCode,
+    );
+  }
+
   Map<String, dynamic> _decodeBody(http.Response response) {
     try {
       final Object? decoded = jsonDecode(response.body);
@@ -203,6 +285,26 @@ class ApiClient {
         return 'The server could not load water points. Please try again.';
       default:
         return 'Could not load water points (status ${response.statusCode}).';
+    }
+  }
+
+  String _reportErrorMessage(http.Response response, Map<String, dynamic> body) {
+    final Object? serverError = body['error'];
+    if (serverError is String && serverError.trim().isNotEmpty) {
+      return serverError;
+    }
+
+    switch (response.statusCode) {
+      case 400:
+        return 'The server rejected the report.';
+      case 401:
+        return 'Your session has expired. Please sign in again.';
+      case 404:
+        return 'This water point is no longer available.';
+      case 500:
+        return 'The server could not submit the report. Please try again.';
+      default:
+        return 'Could not submit the report (status ${response.statusCode}).';
     }
   }
 }

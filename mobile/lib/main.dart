@@ -38,9 +38,11 @@ class _WaterQueueAppState extends State<WaterQueueApp> {
         listenable: _session,
         builder: (BuildContext context, Widget? child) {
           final user = _session.user;
-          if (_session.isAuthenticated && user != null) {
+          final token = _session.token;
+          if (user != null && token != null) {
             return HomeScreen(
               user: user,
+              token: token,
               apiClient: _apiClient,
               onSignOut: _session.signOut,
             );

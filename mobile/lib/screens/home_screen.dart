@@ -5,6 +5,7 @@ import '../models/water_point.dart';
 import '../services/api_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/water_point_card.dart';
+import 'report_screen.dart';
 
 /// Home screen shown after a successful sign-in.
 ///
@@ -14,11 +15,16 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.user,
+    required this.token,
     required this.apiClient,
     required this.onSignOut,
   });
 
   final AuthUser user;
+
+  /// JWT of the signed-in resident, used to submit reports.
+  final String token;
+
   final ApiClient apiClient;
   final VoidCallback onSignOut;
 
@@ -91,6 +97,24 @@ class _HomeScreenState extends State<HomeScreen> {
         _isLoading = false;
       });
       return message;
+    }
+  }
+
+  /// Opens the report form for [waterPoint] and reloads the list when a
+  /// report was submitted.
+  Future<void> _openReport(WaterPoint waterPoint) async {
+    final bool? reported = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (BuildContext context) => ReportScreen(
+          waterPoint: waterPoint,
+          apiClient: widget.apiClient,
+          token: widget.token,
+        ),
+      ),
+    );
+
+    if (reported == true && mounted) {
+      await _reload();
     }
   }
 
@@ -167,7 +191,11 @@ class _HomeScreenState extends State<HomeScreen> {
         separatorBuilder: (BuildContext context, int index) =>
             const SizedBox(height: 12),
         itemBuilder: (BuildContext context, int index) {
-          return WaterPointCard(waterPoint: _waterPoints[index]);
+          final WaterPoint waterPoint = _waterPoints[index];
+          return WaterPointCard(
+            waterPoint: waterPoint,
+            onReport: () => _openReport(waterPoint),
+          );
         },
       ),
     );

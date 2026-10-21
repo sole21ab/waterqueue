@@ -62,6 +62,7 @@ Widget _app(ApiClient apiClient) {
     theme: AppTheme.light(),
     home: HomeScreen(
       user: _user,
+      token: 'signed-jwt-token',
       apiClient: apiClient,
       onSignOut: () {},
     ),
@@ -207,6 +208,24 @@ void main() {
       find.text('Could not reach the server. Make sure the backend is running.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('opens the report form from a water point', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(_client((_) async => http.Response(_waterPointsBody(), 200))),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('water-point-report')), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const Key('water-point-report')).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Report status'), findsOneWidget);
+    expect(find.byKey(const Key('report-queue-size')), findsOneWidget);
+    expect(find.byKey(const Key('report-submit')), findsOneWidget);
   });
 
   testWidgets('the refresh action requests the water points again', (
