@@ -857,6 +857,22 @@ describe('Admin water-point management', () => {
     });
 
     expect(response.statusCode).toBe(403);
+    // A resident must not be able to trigger an admin side-effect.
+    expect(mockWaterPointUpdate).not.toHaveBeenCalled();
+  });
+
+  it('PUT /water-points/:id returns 401 without authentication token', async () => {
+    mockWaterPointFindUnique.mockResolvedValue(mockActiveWaterPoint);
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/water-points/${ACTIVE_WATER_POINT_ID}`,
+      payload: { name: 'X' },
+    });
+
+    expect(response.statusCode).toBe(401);
+    // No admin side-effect may run without authentication.
+    expect(mockWaterPointUpdate).not.toHaveBeenCalled();
   });
 
   it('PUT /water-points/:id returns 400 for empty body', async () => {
@@ -926,6 +942,8 @@ describe('Admin water-point management', () => {
     });
 
     expect(response.statusCode).toBe(403);
+    // A resident must not be able to trigger an admin side-effect.
+    expect(mockWaterPointUpdate).not.toHaveBeenCalled();
   });
 
   it('PATCH /water-points/:id/deactivate returns 401 without authentication token', async () => {
@@ -935,5 +953,7 @@ describe('Admin water-point management', () => {
     });
 
     expect(response.statusCode).toBe(401);
+    // No admin side-effect may run without authentication.
+    expect(mockWaterPointUpdate).not.toHaveBeenCalled();
   });
 });

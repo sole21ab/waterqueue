@@ -16,12 +16,16 @@ class AdminWaterPointsScreen extends StatefulWidget {
     super.key,
     required this.token,
     required this.apiClient,
+    required this.onSignOut,
   });
 
   /// JWT of the signed-in administrator.
   final String token;
 
   final ApiClient apiClient;
+
+  /// Clears the session and returns the user to the sign-in screen.
+  final VoidCallback onSignOut;
 
   @override
   State<AdminWaterPointsScreen> createState() => _AdminWaterPointsScreenState();
@@ -223,6 +227,12 @@ class _AdminWaterPointsScreenState extends State<AdminWaterPointsScreen> {
             onPressed: _isLoading ? null : _reload,
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh water points',
+          ),
+          IconButton(
+            key: const Key('admin-sign-out'),
+            onPressed: widget.onSignOut,
+            icon: const Icon(Icons.logout),
+            tooltip: 'Sign out',
           ),
         ],
       ),

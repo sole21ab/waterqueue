@@ -33,6 +33,7 @@ class _WaterQueueAppState extends State<WaterQueueApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'WaterQueue',
+      debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       home: ListenableBuilder(
         listenable: _session,

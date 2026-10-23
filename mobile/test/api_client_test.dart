@@ -66,6 +66,24 @@ String _reportBody({
   });
 }
 
+String _waterPointBody({
+  String id = 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+  bool isActive = true,
+}) {
+  return jsonEncode(<String, Object?>{
+    'waterPoint': <String, Object?>{
+      'id': id,
+      'name': 'Bole Medhanealem Well',
+      'address': 'Bole Subcity, near Medhanealem Church, Addis Ababa',
+      'latitude': 8.9867,
+      'longitude': 38.7993,
+      'operatingHours': '06:00-22:00',
+      'isActive': isActive,
+      'createdAt': '2024-01-01T00:00:00.000Z',
+    },
+  });
+}
+
 ApiClient _apiClient(
   Future<http.Response> Function(http.Request request) handler, {
   List<http.Request>? recorded,
@@ -554,6 +572,260 @@ void main() {
             (ApiException e) => e.message,
             'message',
             contains('unexpected response'),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('ApiClient.updateWaterPoint', () {
+    test('sends a partial PUT to the water point with the bearer token', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(_waterPointBody(), 200),
+        recorded: requests,
+      );
+
+      await client.updateWaterPoint(
+        token: 'signed-jwt-token',
+        waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+        name: 'Renamed Well',
+        operatingHours: '08:00-18:00',
+      );
+
+      expect(requests, hasLength(1));
+      expect(requests.single.method, 'PUT');
+      expect(
+        requests.single.url.toString(),
+        '$_baseUrl/water-points/aaaaaaaa-bbbb-cccc-dddd-000000000001',
+      );
+      expect(requests.single.headers['Authorization'], 'Bearer signed-jwt-token');
+      expect(
+        jsonDecode(requests.single.body),
+        <String, Object?>{
+          'name': 'Renamed Well',
+          'operatingHours': '08:00-18:00',
+        },
+      );
+    });
+
+    test('omits fields that were not provided', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(_waterPointBody(), 200),
+        recorded: requests,
+      );
+
+      await client.updateWaterPoint(
+        token: 'signed-jwt-token',
+        waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+        isActive: false,
+      );
+
+      expect(
+        jsonDecode(requests.single.body),
+        <String, Object?>{'isActive': false},
+      );
+    });
+
+    test('maps the updated water point', () async {
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(_waterPointBody(isActive: false), 200),
+      );
+
+      final WaterPoint waterPoint = await client.updateWaterPoint(
+        token: 'signed-jwt-token',
+        waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+        isActive: false,
+      );
+
+      expect(waterPoint.id, 'aaaaaaaa-bbbb-cccc-dddd-000000000001');
+      expect(waterPoint.name, 'Bole Medhanealem Well');
+      expect(waterPoint.isActive, isFalse);
+    });
+
+    test('surfaces the server error message on 500', () async {
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(
+          jsonEncode(<String, String>{'error': 'Unable to update water point.'}),
+          500,
+        ),
+      );
+
+      await expectLater(
+        client.updateWaterPoint(
+          token: 'signed-jwt-token',
+          waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+          name: 'X',
+        ),
+        throwsA(
+          isA<ApiException>()
+              .having((ApiException e) => e.statusCode, 'statusCode', 500)
+              .having(
+                (ApiException e) => e.message,
+                'message',
+                'Unable to update water point.',
+              ),
+        ),
+      );
+    });
+
+    test('surfaces the expired session message on 401', () async {
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(
+          jsonEncode(<String, String>{
+            'error': 'Missing or invalid authentication token.',
+          }),
+          401,
+        ),
+      );
+
+      await expectLater(
+        client.updateWaterPoint(
+          token: 'expired-jwt-token',
+          waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+          name: 'X',
+        ),
+        throwsA(
+          isA<ApiException>()
+              .having((ApiException e) => e.statusCode, 'statusCode', 401)
+              .having(
+                (ApiException e) => e.message,
+                'message',
+                'Your session has expired. Please sign in again.',
+              ),
+        ),
+      );
+    });
+
+    test('surfaces the permission message on 403', () async {
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(
+          jsonEncode(<String, String>{
+            'error': 'Admin access required.',
+          }),
+          403,
+        ),
+      );
+
+      await expectLater(
+        client.updateWaterPoint(
+          token: 'resident-jwt-token',
+          waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+          name: 'X',
+        ),
+        throwsA(
+          isA<ApiException>()
+              .having((ApiException e) => e.statusCode, 'statusCode', 403)
+              .having(
+                (ApiException e) => e.message,
+                'message',
+                'You do not have permission to manage water points.',
+              ),
+        ),
+      );
+    });
+
+    test('surfaces the not found message on 404', () async {
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(
+          jsonEncode(<String, String>{'error': 'Water point not found.'}),
+          404,
+        ),
+      );
+
+      await expectLater(
+        client.updateWaterPoint(
+          token: 'signed-jwt-token',
+          waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+          name: 'X',
+        ),
+        throwsA(
+          isA<ApiException>()
+              .having((ApiException e) => e.statusCode, 'statusCode', 404)
+              .having(
+                (ApiException e) => e.message,
+                'message',
+                'The water point was not found.',
+              ),
+        ),
+      );
+    });
+
+    test('reports a network failure when the backend is unreachable', () async {
+      final ApiClient client = _apiClient(
+        (_) async => throw http.ClientException('Connection refused'),
+      );
+
+      await expectLater(
+        client.updateWaterPoint(
+          token: 'signed-jwt-token',
+          waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+          name: 'X',
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (ApiException e) => e.message,
+            'message',
+            contains('Could not reach the server'),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('ApiClient.deactivateWaterPoint', () {
+    test('sends a PATCH to the deactivate endpoint with the bearer token', () async {
+      final List<http.Request> requests = <http.Request>[];
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(_waterPointBody(isActive: false), 200),
+        recorded: requests,
+      );
+
+      await client.deactivateWaterPoint(
+        token: 'signed-jwt-token',
+        waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+      );
+
+      expect(requests, hasLength(1));
+      expect(requests.single.method, 'PATCH');
+      expect(
+        requests.single.url.toString(),
+        '$_baseUrl/water-points/aaaaaaaa-bbbb-cccc-dddd-000000000001/deactivate',
+      );
+      expect(requests.single.headers['Authorization'], 'Bearer signed-jwt-token');
+      expect(requests.single.body, '{}');
+    });
+
+    test('maps the deactivated water point', () async {
+      final ApiClient client = _apiClient(
+        (_) async => http.Response(_waterPointBody(isActive: false), 200),
+      );
+
+      final WaterPoint waterPoint = await client.deactivateWaterPoint(
+        token: 'signed-jwt-token',
+        waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+      );
+
+      expect(waterPoint.id, 'aaaaaaaa-bbbb-cccc-dddd-000000000001');
+      expect(waterPoint.isActive, isFalse);
+    });
+
+    test('reports a network failure when the backend is unreachable', () async {
+      final ApiClient client = _apiClient(
+        (_) async => throw http.ClientException('Connection refused'),
+      );
+
+      await expectLater(
+        client.deactivateWaterPoint(
+          token: 'signed-jwt-token',
+          waterPointId: 'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (ApiException e) => e.message,
+            'message',
+            contains('Could not reach the server'),
           ),
         ),
       );

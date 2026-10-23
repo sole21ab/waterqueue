@@ -456,10 +456,25 @@ class ApiClient {
   /// error message so the admin sees which field was wrong.
   String _adminErrorMessage(http.Response response, Map<String, dynamic> body) {
     final Object? serverError = body['error'];
-    final String message =
-        serverError is String && serverError.trim().isNotEmpty
-        ? serverError
-        : _adminFallbackMessage(response);
+    String message;
+
+    if (serverError is String && serverError.trim().isNotEmpty) {
+      switch (response.statusCode) {
+        case 401:
+          message = 'Your session has expired. Please sign in again.';
+          break;
+        case 403:
+          message = 'You do not have permission to manage water points.';
+          break;
+        case 404:
+          message = 'The water point was not found.';
+          break;
+        default:
+          message = serverError;
+      }
+    } else {
+      message = _adminFallbackMessage(response);
+    }
 
     final Object? rawDetails = body['details'];
     if (rawDetails is! Map<String, dynamic>) {

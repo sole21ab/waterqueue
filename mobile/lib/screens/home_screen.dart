@@ -125,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return AdminWaterPointsScreen(
         token: widget.token,
         apiClient: widget.apiClient,
+        onSignOut: widget.onSignOut,
       );
     }
     return Scaffold(
