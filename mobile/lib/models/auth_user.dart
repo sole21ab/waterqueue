@@ -20,6 +20,13 @@ class AuthUser {
   final String role;
   final DateTime? createdAt;
 
+  /// Whether the account has the backend `admin` role.
+  ///
+  /// The role comes from the signed-in account, so the app only offers the
+  /// administrative screens to administrators. The backend still rejects
+  /// unauthorized admin requests.
+  bool get isAdmin => role == 'admin';
+
   static String _readString(Object? value) {
     return value is String ? value : '';
   }

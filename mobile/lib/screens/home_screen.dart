@@ -5,6 +5,7 @@ import '../models/water_point.dart';
 import '../services/api_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/water_point_card.dart';
+import 'admin_water_points_screen.dart';
 import 'report_screen.dart';
 
 /// Home screen shown after a successful sign-in.
@@ -120,6 +121,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.user.isAdmin) {
+      return AdminWaterPointsScreen(
+        token: widget.token,
+        apiClient: widget.apiClient,
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('WaterQueue'),

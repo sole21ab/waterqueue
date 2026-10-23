@@ -16,6 +16,12 @@ const AuthUser _user = AuthUser(
   role: 'resident',
 );
 
+const AuthUser _adminUser = AuthUser(
+  id: 'aaaaaaaa-bbbb-cccc-dddd-000000000002',
+  email: 'admin@example.com',
+  role: 'admin',
+);
+
 String _waterPointsBody({
   List<Map<String, Object?>> waterPoints = const <Map<String, Object?>>[
     <String, Object?>{
@@ -62,6 +68,18 @@ Widget _app(ApiClient apiClient) {
     theme: AppTheme.light(),
     home: HomeScreen(
       user: _user,
+      token: 'signed-jwt-token',
+      apiClient: apiClient,
+      onSignOut: () {},
+    ),
+  );
+}
+
+Widget _adminApp(ApiClient apiClient) {
+  return MaterialApp(
+    theme: AppTheme.light(),
+    home: HomeScreen(
+      user: _adminUser,
       token: 'signed-jwt-token',
       apiClient: apiClient,
       onSignOut: () {},
@@ -250,5 +268,34 @@ void main() {
 
     expect(requestCount, 2);
     expect(find.text('Bole Medhanealem Well'), findsOneWidget);
+  });
+
+  testWidgets('routes administrators to the water points management screen', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _adminApp(_client((_) async => http.Response(_waterPointsBody(), 200))),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Manage water points'), findsOneWidget);
+    expect(find.byKey(const Key('admin-add-water-point')), findsOneWidget);
+    expect(find.byKey(const Key('water-points-list')), findsNothing);
+    expect(find.byKey(const Key('water-point-report')), findsNothing);
+    expect(find.text('Role: admin'), findsNothing);
+  });
+
+  testWidgets('keeps residents on the resident water points list', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(_client((_) async => http.Response(_waterPointsBody(), 200))),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('water-points-list')), findsOneWidget);
+    expect(find.byKey(const Key('admin-add-water-point')), findsNothing);
+    expect(find.text('Manage water points'), findsNothing);
+    expect(find.text('Role: resident'), findsOneWidget);
   });
 }
