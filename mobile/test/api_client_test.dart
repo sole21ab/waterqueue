@@ -831,4 +831,11 @@ void main() {
       );
     });
   });
+
+  group('ApiClient base URL', () {
+    test('defaults to the IPv4 loopback address', () {
+      final client = ApiClient();
+      expect(client.baseUrl, 'http://127.0.0.1:3000');
+    });
+  });
 }

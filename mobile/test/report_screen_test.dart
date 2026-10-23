@@ -197,7 +197,7 @@ void main() {
     expect(requests.single.method, 'POST');
     expect(
       requests.single.url.toString(),
-      'http://localhost:3000/water-points/$_waterPointId/reports',
+      'http://127.0.0.1:3000/water-points/$_waterPointId/reports',
     );
     expect(requests.single.headers['Authorization'], 'Bearer $_token');
     expect(

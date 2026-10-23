@@ -27,8 +27,13 @@ await fastify.register(jwt, {
 
 // Browser clients (Flutter Web) call this API from a different origin,
 // so every response must carry the CORS headers the browser expects.
+// `credentials: true` is required because admin requests send the
+// `Authorization: Bearer` header; `methods` must include PUT/PATCH so the
+// preflight for admin Save and Deactivate is allowed.
 await fastify.register(cors, {
   origin: true,
+  credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
 });
 
 fastify.register(healthRoutes);

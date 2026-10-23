@@ -1,18 +1,28 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/auth_user.dart';
 import '../models/report.dart';
 import '../models/water_point.dart';
 
-const String kDefaultApiBaseUrl = 'http://localhost:3000';
+const String kDefaultApiBaseUrl = 'http://127.0.0.1:3000';
 
 const String kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: kDefaultApiBaseUrl,
 );
+
+/// Logs a failed API request for diagnosis.
+///
+/// Only the HTTP method, URL, and exception are recorded. The request body
+/// and authorization headers are deliberately omitted so secrets are never
+/// logged.
+void _logApiRequestFailure(String method, Uri uri, Object error) {
+  debugPrint('API request failed: $method ${uri.toString()} -> $error');
+}
 
 class AuthResult {
   const AuthResult({required this.user, required this.token});
@@ -238,7 +248,8 @@ class ApiClient {
       throw const ApiException(
         'The server took too long to respond. Please try again.',
       );
-    } on http.ClientException {
+    } on http.ClientException catch (error) {
+      _logApiRequestFailure('GET', uri, error);
       throw const ApiException(
         'Could not reach the server. Make sure the backend is running.',
       );
@@ -279,7 +290,8 @@ class ApiClient {
       throw const ApiException(
         'The server took too long to respond. Please try again.',
       );
-    } on http.ClientException {
+    } on http.ClientException catch (error) {
+      _logApiRequestFailure('POST', uri, error);
       throw const ApiException(
         'Could not reach the server. Make sure the backend is running.',
       );
@@ -355,7 +367,8 @@ class ApiClient {
       throw const ApiException(
         'The server took too long to respond. Please try again.',
       );
-    } on http.ClientException {
+    } on http.ClientException catch (error) {
+      _logApiRequestFailure(method, uri, error);
       throw const ApiException(
         'Could not reach the server. Make sure the backend is running.',
       );
